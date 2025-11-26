@@ -2,22 +2,22 @@ import datetime
 import os
 import random
 import pygame
+import numpy as np
 
-from brain import QLearningAgent 
+from brain import QLearningAgent
 
 pygame.init()
+
 # ==========================================
-# GLOBAL VARIABLES
+# CONSTANTS & SETUP
 # ==========================================
-points = 0
-# Global Constants
 SCREEN_HEIGHT = 600
 SCREEN_WIDTH = 1100
 SCREEN = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 
-pygame.display.set_caption("Chrome Dino Runner")
+pygame.display.set_caption("Dino AI - TESTING MODE")
 
-# Assets Loading 
+# Assets Loading
 try:
     Ico = pygame.image.load("assets/DinoWallpaper.png")
     pygame.display.set_icon(Ico)
@@ -52,10 +52,14 @@ try:
     BG = pygame.image.load(os.path.join("assets/Other", "Track.png"))
 except Exception as e:
     print(f"Error loading assets: {e}")
-    print("Make sure you have the 'assets' folder in the same directory!")
     exit()
 
 FONT_COLOR = (0, 0, 0)
+game_speed = 20
+x_pos_bg = 0
+y_pos_bg = 380
+points = 0
+obstacles = []
 
 class Dinosaur:
     X_POS = 80
@@ -90,18 +94,8 @@ class Dinosaur:
         if self.step_index >= 10:
             self.step_index = 0
 
-        if (userInput[pygame.K_UP] or userInput[pygame.K_SPACE]) and not self.dino_jump:
-            self.dino_duck = False
-            self.dino_run = False
-            self.dino_jump = True
-        elif userInput[pygame.K_DOWN] and not self.dino_jump:
-            self.dino_duck = True
-            self.dino_run = False
-            self.dino_jump = False
-        elif not (self.dino_jump or userInput[pygame.K_DOWN]):
-            self.dino_duck = False
-            self.dino_run = True
-            self.dino_jump = False
+        # AI Control logic handled in main loop, here we just update physics
+        pass
 
     def duck(self):
         self.image = self.duck_img[self.step_index // 5]
@@ -192,8 +186,19 @@ class Bird(Obstacle):
         SCREEN.blit(self.image[self.index // 5], self.rect)
         self.index += 1
 
-# --- CHANGE 1: Accept death_count as argument ---
-def main(death_count, agent): 
+
+def background():
+    global x_pos_bg, y_pos_bg
+    image_width = BG.get_width()
+    SCREEN.blit(BG, (x_pos_bg, y_pos_bg))
+    SCREEN.blit(BG, (image_width + x_pos_bg, y_pos_bg))
+    if x_pos_bg <= -image_width:
+        SCREEN.blit(BG, (image_width + x_pos_bg, y_pos_bg))
+        x_pos_bg = 0
+    x_pos_bg -= game_speed
+
+
+def test(agent):
     global game_speed, x_pos_bg, y_pos_bg, points, obstacles
     run = True
     clock = pygame.time.Clock()
@@ -205,75 +210,20 @@ def main(death_count, agent):
     points = 0
     font = pygame.font.Font("freesansbold.ttf", 20)
     obstacles = []
-    pause = False
+    
+    # Force epsilon to 0 so the agent strictly uses what it learned
+    agent.epsilon = 0.0
 
-    # --- CHANGE 2: Removed "death_count = 0" line from here ---
-
-    last_state = (3, 0, 0) # (Far, Low Obstacle, Slow)
-    last_action = 0        # Run
-
-    def score():
-        global points, game_speed
-        points += 1
-        if points % 100 == 0:
-            game_speed += 1
-        
-        if not os.path.exists("score.txt"):
-            with open("score.txt", "w") as f: f.write("0")
-
-        with open("score.txt", "r") as f:
-            content = f.read()
-            score_ints = [int(x) for x in content.split()] if content else [0]
-            highscore = max(score_ints) if score_ints else 0
-            if points > highscore: highscore = points
-            
-            text = font.render(f"High Score: {highscore}  Points: {points}", True, FONT_COLOR)
-        
-        textRect = text.get_rect()
-        textRect.center = (900, 40)
-        SCREEN.blit(text, textRect)
-
-    def background():
-        global x_pos_bg, y_pos_bg
-        image_width = BG.get_width()
-        SCREEN.blit(BG, (x_pos_bg, y_pos_bg))
-        SCREEN.blit(BG, (image_width + x_pos_bg, y_pos_bg))
-        if x_pos_bg <= -image_width:
-            SCREEN.blit(BG, (image_width + x_pos_bg, y_pos_bg))
-            x_pos_bg = 0
-        x_pos_bg -= game_speed
-
-    def unpause():
-        nonlocal pause, run
-        pause = False
-        run = True
-
-    def paused():
-        nonlocal pause
-        pause = True
-        font = pygame.font.Font("freesansbold.ttf", 30)
-        text = font.render("Game Paused, Press 'u' to Unpause", True, FONT_COLOR)
-        textRect = text.get_rect()
-        textRect.center = (SCREEN_WIDTH // 2, SCREEN_HEIGHT // 3)
-        SCREEN.blit(text, textRect)
-        pygame.display.update()
-
-        while pause:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    pygame.quit()
-                    quit()
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_u:
-                    unpause()
+    print("--- TESTING MODE STARTED ---")
+    print("Exploration (Randomness) disabled.")
+    print(f"Loaded Brain Size: {len(agent.q_table)} states")
 
     while run:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 run = False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_p:
-                run = False
-                paused()
 
+        # 1. GET STATE
         if len(obstacles) > 0:
             distance = obstacles[0].rect.x - player.dino_rect.x
             obs_y = obstacles[0].rect.y
@@ -283,9 +233,11 @@ def main(death_count, agent):
 
         current_state = agent.get_state(distance, obs_y, game_speed)
 
-        agent.learn(last_state, last_action, 1, current_state)
+        # 2. CHOOSE ACTION (Greedy, because epsilon is 0)
         action = agent.choose_action(current_state)
 
+        # 3. EXECUTE ACTION
+        # 0 = Run, 1 = Jump, 2 = Duck
         if action == 1: 
             if not player.dino_jump:
                 player.dino_duck = False
@@ -296,24 +248,17 @@ def main(death_count, agent):
                 player.dino_duck = True
                 player.dino_run = False
                 player.dino_jump = False
-        else: 
+        else: # Action 0
             player.dino_duck = False
             player.dino_run = True
             player.dino_jump = False
 
-        last_state = current_state
-        last_action = action
+        # NOTE: No agent.learn() here! We are just testing.
 
-        current_time = datetime.datetime.now().hour
-        if 7 < current_time < 19:
-            SCREEN.fill((255, 255, 255))
-        else:
-            SCREEN.fill((0, 0, 0))
-        
-        userInput = pygame.key.get_pressed()
-
+        # Draw Environment
+        SCREEN.fill((255, 255, 255))
         player.draw(SCREEN)
-        player.update(userInput)
+        player.update(pygame.key.get_pressed())
 
         if len(obstacles) == 0:
             if random.randint(0, 2) == 0:
@@ -327,48 +272,33 @@ def main(death_count, agent):
             obstacle.draw(SCREEN)
             obstacle.update()
             
+            # COLLISION
             if player.dino_rect.colliderect(obstacle.rect):
-                agent.learn(last_state, last_action, -100, current_state)
-                agent.save_brain()
-                agent.update_epsilon() 
-                print(f"Dead! Points: {points} | Epsilon: {agent.epsilon:.3f}")
-
-                pygame.time.delay(2000)
-                
-                # Increment death count before restarting
-                death_count += 1
-                menu(death_count, agent)
+                print(f"GAME OVER. Final Score: {points}")
+                pygame.time.delay(1000)
+                # Restart automatically for testing
+                test(agent)
+                return
 
         background()
-
         cloud.draw(SCREEN)
         cloud.update()
 
-        score()
-        
-        # Limit frame rate for human viewing, remove for faster training
-        # clock.tick(30)
+        # Score Display
+        points += 1
+        if points % 100 == 0:
+            game_speed += 1
+        text = font.render(f"TESTING SCORE: {points}", True, (0, 0, 0))
+        SCREEN.blit(text, (800, 40))
+
+        # IMPORTANT: Run at normal human speed
+        clock.tick(30)
         pygame.display.update()
 
-def menu(death_count, agent):
-    global points
-    global FONT_COLOR
-    
-    if not os.path.exists("score.txt"):
-        with open("score.txt", "w") as f: f.write("0")
-
-    with open("score.txt", "a") as f:
-        f.write(str(points) + "\n")
-    
-    print(f"Generation: {death_count} | Score: {points} | Restarting automatically...")
-
-    pygame.time.delay(100) 
-    # --- CHANGE 3: Pass death_count back to main ---
-    main(death_count, agent)
-
 if __name__ == "__main__":
+    # Initialize agent and load the brain file
     agent = QLearningAgent()
-    agent.load_brain() 
+    agent.load_brain()
     
-    # Start with Generation 0 (or 1 if you prefer)
-    menu(death_count=0, agent=agent)
+    # Run the test loop
+    test(agent)
