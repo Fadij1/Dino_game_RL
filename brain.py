@@ -5,15 +5,13 @@ import pickle
 # ==============================================================================
 #                               HYPERPARAMETERS
 # ==============================================================================
-TRAINING_EPISODES = 50000   # Total episodes to train
+TRAINING_EPISODES = 50000   
 LEARNING_RATE = 0.01        
 DISCOUNT_FACTOR = 0.95      
 
 # EXPLORATION SETTINGS
 EPSILON_START = 1.0         
 EPSILON_END = 0.005          
-# Decay Rate: 0.9999 ensures it explores for roughly ~40,000 episodes
-# before settling down. This is crucial for long training (50k).
 EPSILON_DECAY = 0.9999      
 # ==============================================================================
 
@@ -25,13 +23,14 @@ class QLearningAgent:
         self.actions = [0, 1, 2] # 0=Run, 1=Jump, 2=Duck
         self.q_table = {} 
 
-    def get_state(self, distance, obstacle_y, speed, obstacle_type):
+    def get_state(self, distance, obstacle_y, speed, obstacle_type, obstacle_width):
         """
-        Input:
-            distance: pixels to next obstacle
-            obstacle_y: y-coordinate of obstacle (to distinguish height)
-            speed: current game speed
-            obstacle_type: 0 for Cactus, 1 for Bird
+        Refined State Representation:
+        1. Distance
+        2. Speed
+        3. Height (Y)
+        4. Type (Bird/Cactus)
+        5. Width (Single/Double/Triple Cactus) <- NEW
         """
         # 1. Distance Buckets
         if distance < 100: dist_state = 0
@@ -53,10 +52,15 @@ class QLearningAgent:
         else: obs_state = 2                  # High (High Bird)
 
         # 4. Obstacle Type
-        # Crucial fix: explicitly tells the brain "This is a Bird"
         type_state = obstacle_type
 
-        return (dist_state, obs_state, speed_state, type_state)
+        # 5. Width Buckets
+        # Small cactus width ~34px, Large ~50px. Groups can be 100px+.
+        if obstacle_width < 40: width_state = 0   # Single Small
+        elif obstacle_width < 75: width_state = 1 # Single Large / Double Small
+        else: width_state = 2                     # Triple / Clump
+
+        return (dist_state, obs_state, speed_state, type_state, width_state)
 
     def choose_action(self, state):
         if state not in self.q_table:
